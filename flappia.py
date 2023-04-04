@@ -70,7 +70,7 @@ class Bird:
 		"""
 		if self.alive:
 			self.vy = 0
-			self.apply_force(-45)
+			self.apply_force(-40)
 
 	def update(self):
 		"""
@@ -167,6 +167,7 @@ class PipeGestionnary:
 
 #Screen initialisation
 screen = pygame.display.set_mode(SCREEN_SIZE)
+pygame.display.set_caption('FlappyIA')
 
 while True:
 	#Init bird and pipes
