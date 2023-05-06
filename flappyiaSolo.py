@@ -1,9 +1,6 @@
 import pygame
 import math
 import random
-import dnn
-import numpy as np
-import chainedList
 
 #Initialisation of pygame
 pygame.init()
@@ -30,9 +27,6 @@ GRAVITY = 0.15
 
 #Execution speed
 FPS = 60
-NB_INDIVIDUAL = 1000
-ELITE_PERCENTAGE = 1
-MUTATION_PROB = 0.1
 
 class Bird:
 	"""
@@ -46,7 +40,7 @@ class Bird:
 		-> rect : visual pygame element of bird
 	"""
 	
-	def __init__(self, x, y, mass, init_param=True):
+	def __init__(self, x, y, mass):
 		"""
 		Bird constructor
 		Parameters:
@@ -59,15 +53,6 @@ class Bird:
 		self.x = x
 		self.y = y
 		self.mass = mass
-		self.vy = 0
-		self.alive = True
-		self.rect = pygame.draw.circle(screen, BLACK, (int(self.x), int(self.y)), 10)
-		self.parameters = dnn.initialisation([2, 10, 10, 1]) if init_param else None
-		
-	def reset(self):
-		self.score = 0
-		self.x = 100
-		self.y = screen.get_size()[1]//2
 		self.vy = 0
 		self.alive = True
 		self.rect = pygame.draw.circle(screen, BLACK, (int(self.x), int(self.y)), 10)
@@ -86,11 +71,6 @@ class Bird:
 		if self.alive:
 			self.vy = 0
 			self.apply_force(-40)
-			
-	def makeDecision(self, next_pipe):
-		X = np.array([(next_pipe.x+PIPE_WIDTH//2-self.x)/SCREEN_SIZE[0], (next_pipe.y-self.y)/SCREEN_SIZE[1]], ndmin=2).reshape(-1, 1)
-		if dnn.predict(X, self.parameters):
-			self.jump()
 
 	def update(self):
 		"""
@@ -182,50 +162,19 @@ class PipeGestionnary:
 			self.pipes[0].x = self.pipes[self.nb-1].x + PIPE_SPACE
 			
 		self.pipes = sorted(self.pipes, key=lambda p: p.x)
-		
-def buildGeneration(parents=[]):
-	if parents == []:
-		return [Bird(100, screen.get_size()[1]//2, 10) for _ in range(NB_INDIVIDUAL)]
-		
-	elite = []
-	p = sorted(parents, key=lambda x: -x.score)
-
-	nbElite = 5
-	for i in range(nbElite):
-		p[i].reset()
-		elite.append(p[i])
-	for i in range(nbElite):
-		bird = Bird(100, screen.get_size()[1]//2, 10, False)
-		p1 = random.randint(0, nbElite-1)
-		p2 = p1
-		bird.parameters = dnn.procreate(elite[p1].parameters, elite[p2].parameters, MUTATION_PROB)
-		elite.append(bird)
-	for i in range(NB_INDIVIDUAL - 2*nbElite):
-		bird = Bird(100, screen.get_size()[1]//2, 10, False)
-		p1 = random.randint(0, nbElite-1)
-		p2 = random.randint(0, nbElite-1)
-		while p1 == p2:
-			p2 = random.randint(0, nbElite-1)
-		bird.parameters = dnn.procreate(elite[p1].parameters, elite[p2].parameters, MUTATION_PROB)
-		elite.append(bird)
-	return elite
 	
 
 
 #Screen initialisation
 screen = pygame.display.set_mode(SCREEN_SIZE)
 pygame.display.set_caption('FlappyIA')
-birds = []
-gen = 0
+
 while True:
-	gen += 1
-	game_score = 0
 	#Init bird and pipes
-	birds = buildGeneration(birds)
-	pipes = PipeGestionnary(300, 5)
+	bird = Bird(100, screen.get_size()[1]//2, 10)
+	pipes = PipeGestionnary(SCREEN_SIZE[0], 5)
 	#Game const to control the game and reset it after a death
 	game = True
-	print(f"########## GENERATION N°{gen} ##########")
 	while game:
 		#Event gestion
 		for event in pygame.event.get():
@@ -233,48 +182,50 @@ while True:
 			if event.type == pygame.QUIT:
 				pygame.quit()
 				quit()
+			if event.type == pygame.KEYDOWN:
+				#If spacebar pressed -> jump
+				if event.key == pygame.K_SPACE:
+					bird.jump()
+				#Restart the game after a death
+				if event.key == pygame.K_r:
+					if not bird.alive and bird.y == SCREEN_SIZE[1]:
+						game = False
+						break
 						
 		#Clear screen
 		screen.fill(WHITE)
 		
-		#Search next pipe
-		closest_id = 0
-		while pipes.pipes[closest_id].x < birds[0].x:
-			closest_id += 1
+
+		#If bird touch a pipe -> dead
+		if bird.rect.colliderect(pipes.pipes[0].rect[0]) or bird.rect.colliderect(pipes.pipes[0].rect[1]):
+			bird.alive = False
 		
-		if abs(pipes.pipes[closest_id].x - birds[0].x) <= 1:
-			game_score += 1
-				
-		#If bird touch a pipe -> dead	
-		nb_deads = 0
-		for bird in birds:
-			if bird.alive:
-				if bird.rect.colliderect(pipes.pipes[0].rect[0]) or bird.rect.colliderect(pipes.pipes[0].rect[1]):
-					bird.alive = False
-				else:
-					bird.score += 1
-					
-					#Update pipes and bird position
-					bird.makeDecision(pipes.pipes[closest_id])
-				
-					bird.update()
-			else:
-				nb_deads += 1
+		#Score count -> searching the pipe where the bird is (okay it's not opti but don't juge)
+		for pipe in pipes.pipes:
+			if pipe.x - 0.5 <= bird.x and bird.x <= pipe.x + 0.5 :
+				bird.score += 1
+				break
+			
+		#Update pipes and bird position
+		pipes.update(bird.alive)
+		bird.update()
+		
+		#Score display
+		text_score = FONT.render("Score : " + str(bird.score), True, (255, 0, 0))
+		screen.blit(text_score, (20, 20))
+		
+		#Gameover gestion
+		if not bird.alive and bird.y == SCREEN_SIZE[1]:
+			game_over_text = FONT.render("GAME OVER", True, (255, 0, 0))
+			game_over_rect = game_over_text.get_rect(center=(SCREEN_SIZE[0]//2, SCREEN_SIZE[1]//2))
+			restart_text = FONT.render("press r to restart", True, (255, 0, 0))
+			restart_rect = restart_text.get_rect(center=(SCREEN_SIZE[0]//2, SCREEN_SIZE[1]//2+20))
+			screen.blit(game_over_text, game_over_rect)
+			screen.blit(restart_text, restart_rect)
 			
 		
-		if NB_INDIVIDUAL == nb_deads:
-			game = False
-		else:
-			pipes.update(True)
-			
-			#Score display
-			text_score = FONT.render("Score : " + str(game_score), True, (255, 0, 0))
-			screen.blit(text_score, (20, 20))
-				
-			#Refresh display
-			pygame.display.update()
-			
-			clock.tick(FPS)
-	
-	print(f"score : {game_score}")
+		#Refresh display
+		pygame.display.update()
+		
+		clock.tick(FPS)
 
